@@ -50,6 +50,50 @@ This module supports the full AWS PrivateLink producer/consumer pattern:
     +------------------+------------------------------------------------+
 ```
 
+### Component Diagram
+
+```mermaid
+flowchart TB
+    subgraph Producer["Producer VPC"]
+        APP_P["Application\n(Backend)"]
+        NLB["Network Load\nBalancer"]
+        EPS["VPC Endpoint\nService"]
+        APP_P --> NLB --> EPS
+    end
+
+    subgraph Consumer["Consumer VPC"]
+        APP_C["Application\n(Client)"]
+        IFE["Interface Endpoint\n(ENI-based)"]
+        GWE["Gateway Endpoint\n(S3 / DynamoDB)"]
+        APP_C --> IFE
+        APP_C --> GWE
+    end
+
+    subgraph Security["Access Control"]
+        SG["Security Groups"]
+        POL["Endpoint Policies"]
+        DNS["Private DNS"]
+    end
+
+    EPS -- "AWS PrivateLink\n(Private Connection)" --> IFE
+    IFE --> SG
+    IFE --> POL
+    IFE --> DNS
+
+    style Producer fill:#FF9900,stroke:#FF9900,color:#fff
+    style Consumer fill:#1A73E8,stroke:#1A73E8,color:#fff
+    style Security fill:#3F8624,stroke:#3F8624,color:#fff
+    style APP_P fill:#FF9900,stroke:#cc7a00,color:#fff
+    style NLB fill:#FF9900,stroke:#cc7a00,color:#fff
+    style EPS fill:#FF9900,stroke:#cc7a00,color:#fff
+    style APP_C fill:#1A73E8,stroke:#1459b3,color:#fff
+    style IFE fill:#1A73E8,stroke:#1459b3,color:#fff
+    style GWE fill:#1A73E8,stroke:#1459b3,color:#fff
+    style SG fill:#3F8624,stroke:#2d6119,color:#fff
+    style POL fill:#3F8624,stroke:#2d6119,color:#fff
+    style DNS fill:#3F8624,stroke:#2d6119,color:#fff
+```
+
 ## Features
 
 - **Producer Side**: Create VPC Endpoint Services backed by NLB or GWLB
