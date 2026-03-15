@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>terraform-aws-privatelink | Architecture</title>
+<style>
+:root{--ink:#0b0c0b;--accent:#c8420a;--surface:#141514;--border:#2a2b2a;--text:#d4d4d4;--muted:#8a8a8a;--card:#1a1b1a;--success:#2ea043;--warn:#d29922;--info:#388bfd}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--ink);color:var(--text);font-family:'SF Mono','Cascadia Code','Fira Code',monospace;font-size:15px;line-height:1.7;padding:0}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+.container{max-width:1200px;margin:0 auto;padding:2rem 1.5rem}
+header{border-bottom:2px solid var(--accent);padding:2rem 0;margin-bottom:3rem}
+header h1{font-size:1.8rem;color:#fff;margin-bottom:.5rem}
+header p{color:var(--muted);font-size:.95rem}
+h2{color:var(--accent);font-size:1.3rem;margin:2.5rem 0 1rem;padding-bottom:.5rem;border-bottom:1px solid var(--border)}
+h3{color:#fff;font-size:1.05rem;margin:1.5rem 0 .75rem}
+.badge{display:inline-block;padding:.2rem .6rem;border-radius:3px;font-size:.75rem;font-weight:600;margin-right:.5rem}
+.badge-accent{background:var(--accent);color:#fff}
+.badge-success{background:var(--success);color:#fff}
+.badge-info{background:var(--info);color:#fff}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin:1rem 0}
+.card{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:1.25rem}
+.card h4{color:#fff;margin-bottom:.5rem;font-size:.95rem}
+.card p{color:var(--muted);font-size:.85rem}
+.card .num{font-size:1.8rem;color:var(--accent);font-weight:700}
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:2rem;margin:1.5rem 0;overflow-x:auto}
+.flow{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:.5rem}
+.flow-box{background:var(--card);border:2px solid var(--accent);border-radius:6px;padding:.75rem 1.25rem;text-align:center;min-width:140px;font-size:.85rem;color:#fff}
+.flow-box.alt{border-color:var(--info)}
+.flow-box.green{border-color:var(--success)}
+.flow-arrow{color:var(--accent);font-size:1.5rem;font-weight:700}
+.flow-arrow.down{transform:rotate(90deg)}
+.table-wrap{overflow-x:auto;margin:1rem 0}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th{background:var(--surface);color:var(--accent);text-align:left;padding:.75rem;border:1px solid var(--border)}
+td{padding:.75rem;border:1px solid var(--border);color:var(--text)}
+tr:hover td{background:var(--surface)}
+.checklist{list-style:none;margin:1rem 0}
+.checklist li{padding:.4rem 0;padding-left:1.5rem;position:relative;font-size:.9rem}
+.checklist li::before{content:"[ ]";position:absolute;left:0;color:var(--accent);font-weight:700}
+code{background:var(--surface);padding:.15rem .4rem;border-radius:3px;font-size:.85rem;color:var(--accent)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:1.25rem;overflow-x:auto;font-size:.85rem;line-height:1.5;margin:1rem 0}
+.section{margin-bottom:2rem}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+@media(max-width:768px){.grid-2{grid-template-columns:1fr}.flow{flex-direction:column}.flow-arrow{transform:rotate(90deg)}}
+footer{border-top:1px solid var(--border);margin-top:3rem;padding:2rem 0;color:var(--muted);font-size:.8rem;text-align:center}
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+<h1>terraform-aws-privatelink</h1>
+<p>Architecture Document &mdash; AWS PrivateLink &amp; VPC Endpoint Service Module</p>
+<p><span class="badge badge-accent">Terraform &ge; 1.5.0</span><span class="badge badge-info">AWS Provider &ge; 5.20.0</span><span class="badge badge-success">MIT License</span></p>
+</header>
+
+<!-- Executive Summary -->
+<section class="section">
+<h2>Executive Summary</h2>
+<p>This Terraform module provisions AWS PrivateLink infrastructure supporting both producer and consumer patterns. It enables private connectivity between VPCs and AWS services without exposing traffic to the public internet. The module manages VPC Endpoint Services backed by NLB/GWLB, VPC Endpoints (Interface and Gateway types), security groups, endpoint policies, allowed principals, and connection acceptance workflows.</p>
+</section>
+
+<!-- Overview Cards -->
+<section class="section">
+<h2>Overview</h2>
+<div class="cards">
+<div class="card"><div class="num">6</div><h4>Resources Managed</h4><p>Endpoint Service, Endpoints, SG, Policies, Principals, Accepter</p></div>
+<div class="card"><div class="num">2</div><h4>Endpoint Types</h4><p>Interface (ENI-based) and Gateway (S3/DynamoDB)</p></div>
+<div class="card"><div class="num">11</div><h4>Input Variables</h4><p>Configurable name, VPC, endpoints map, service settings, tags</p></div>
+<div class="card"><div class="num">9</div><h4>Outputs</h4><p>Service ID/Name/ARN, Endpoint IDs/DNS/ARNs, Security Group ID</p></div>
+</div>
+</section>
+
+<!-- Architecture Diagram -->
+<section class="section">
+<h2>Architecture Diagram</h2>
+<div class="diagram">
+<h3 style="text-align:center;margin-bottom:1.5rem;color:var(--muted)">Producer / Consumer PrivateLink Pattern</h3>
+<div class="flow">
+<div class="flow-box">Application<br>(Backend)</div>
+<div class="flow-arrow">&rarr;</div>
+<div class="flow-box">NLB / GWLB</div>
+<div class="flow-arrow">&rarr;</div>
+<div class="flow-box" style="border-color:var(--warn)">VPC Endpoint<br>Service (Producer)</div>
+<div class="flow-arrow">&rarr;</div>
+<div class="flow-box alt">AWS PrivateLink<br>(Private Backbone)</div>
+<div class="flow-arrow">&rarr;</div>
+<div class="flow-box green">VPC Endpoint<br>(Consumer ENI)</div>
+<div class="flow-arrow">&rarr;</div>
+<div class="flow-box">Application<br>(Client)</div>
+</div>
+<div style="margin-top:1.5rem;text-align:center">
+<div class="flow" style="justify-content:center">
+<div class="flow-box green">Security Group</div>
+<div class="flow-box green">Endpoint Policy</div>
+<div class="flow-box green">Private DNS</div>
+</div>
+</div>
+</div>
+</section>
+
+<!-- Component Breakdown -->
+<section class="section">
+<h2>Component Breakdown</h2>
+<div class="table-wrap">
+<table>
+<tr><th>Resource</th><th>Type</th><th>Purpose</th></tr>
+<tr><td><code>aws_vpc_endpoint_service.this</code></td><td>Producer</td><td>Exposes service via NLB/GWLB behind PrivateLink with optional private DNS and acceptance control</td></tr>
+<tr><td><code>aws_vpc_endpoint_service_allowed_principal.this</code></td><td>Producer</td><td>Controls which AWS principals (accounts/roles) can discover and connect</td></tr>
+<tr><td><code>aws_vpc_endpoint_connection_accepter.this</code></td><td>Producer</td><td>Auto-accepts incoming endpoint connections when acceptance_required is true</td></tr>
+<tr><td><code>aws_security_group.endpoint</code></td><td>Security</td><td>Default SG allowing HTTPS (443) from VPC CIDR for Interface endpoints</td></tr>
+<tr><td><code>aws_vpc_endpoint.this</code></td><td>Consumer</td><td>Creates Interface or Gateway endpoints in the consumer VPC</td></tr>
+<tr><td><code>aws_vpc_endpoint_policy.this</code></td><td>Consumer</td><td>Attaches IAM policy documents to endpoints for fine-grained access</td></tr>
+</table>
+</div>
+</section>
+
+<!-- Data Flow -->
+<section class="section">
+<h2>Data Flow</h2>
+<div class="diagram">
+<ol style="list-style:decimal inside;color:var(--text);font-size:.9rem;line-height:2">
+<li><strong>Producer</strong> deploys application behind a Network or Gateway Load Balancer</li>
+<li><strong>VPC Endpoint Service</strong> is created, referencing the NLB/GWLB ARN(s)</li>
+<li><strong>Allowed Principals</strong> are registered to restrict who can create consumer endpoints</li>
+<li><strong>Consumer</strong> creates a VPC Endpoint (Interface type creates ENIs in specified subnets)</li>
+<li><strong>Connection acceptance</strong> is handled automatically or manually per configuration</li>
+<li><strong>Traffic</strong> flows over the AWS backbone network, never traversing the public internet</li>
+<li><strong>Endpoint Policies</strong> and <strong>Security Groups</strong> enforce least-privilege access</li>
+<li><strong>Private DNS</strong> enables transparent hostname resolution within the consumer VPC</li>
+</ol>
+</div>
+</section>
+
+<!-- Security Controls -->
+<section class="section">
+<h2>Security Controls</h2>
+<div class="grid-2">
+<div class="card">
+<h4>Network Isolation</h4>
+<p>Traffic never traverses the public internet. All communication stays on the AWS backbone via PrivateLink.</p>
+</div>
+<div class="card">
+<h4>Security Groups</h4>
+<p>Auto-created SG restricts inbound to HTTPS (port 443) from VPC CIDR blocks only.</p>
+</div>
+<div class="card">
+<h4>Principal-Based Access</h4>
+<p>Allowed principals list restricts which AWS accounts/roles can discover and connect to the endpoint service.</p>
+</div>
+<div class="card">
+<h4>Endpoint Policies</h4>
+<p>IAM policy documents attached to endpoints provide fine-grained resource and action-level access control.</p>
+</div>
+<div class="card">
+<h4>Connection Acceptance</h4>
+<p>Manual or automatic acceptance workflow ensures no unauthorized connections are established.</p>
+</div>
+<div class="card">
+<h4>Private DNS</h4>
+<p>Private DNS names resolve within the VPC, preventing accidental exposure through public DNS resolution.</p>
+</div>
+</div>
+</section>
+
+<!-- Industry Adaptation -->
+<section class="section">
+<h2>Industry Adaptation</h2>
+<div class="table-wrap">
+<table>
+<tr><th>Industry</th><th>Use Case</th><th>Configuration Focus</th></tr>
+<tr><td>Financial Services</td><td>Secure API connectivity between trading platforms</td><td>acceptance_required = true, strict allowed_principals, endpoint policies</td></tr>
+<tr><td>Healthcare</td><td>HIPAA-compliant data exchange between VPCs</td><td>Private DNS, no public internet path, SG locked to VPC CIDR</td></tr>
+<tr><td>SaaS Providers</td><td>Multi-tenant service exposure via PrivateLink</td><td>Endpoint Service with NLB, per-customer allowed_principals</td></tr>
+<tr><td>Enterprise</td><td>Secure access to AWS services (SSM, ECR, KMS)</td><td>Gateway endpoints for S3/DynamoDB, Interface for other services</td></tr>
+</table>
+</div>
+</section>
+
+<!-- Production Readiness Checklist -->
+<section class="section">
+<h2>Production Readiness Checklist</h2>
+<ul class="checklist">
+<li>Enable acceptance_required for producer endpoint services</li>
+<li>Define explicit allowed_principals (do not leave open)</li>
+<li>Attach endpoint policies to restrict actions/resources</li>
+<li>Use Interface endpoints with private_dns_enabled for seamless integration</li>
+<li>Deploy Interface endpoints across multiple subnets/AZs</li>
+<li>Review default security group rules and customize if needed</li>
+<li>Tag all resources for cost allocation and governance</li>
+<li>Use Gateway endpoints for S3 and DynamoDB (no additional cost)</li>
+<li>Monitor VPC endpoint metrics via CloudWatch</li>
+<li>Test failover behavior for multi-AZ endpoint deployments</li>
+</ul>
+</section>
+
+<!-- Config Reference -->
+<section class="section">
+<h2>Configuration Reference</h2>
+<h3>Key Variables</h3>
+<div class="table-wrap">
+<table>
+<tr><th>Variable</th><th>Type</th><th>Default</th><th>Description</th></tr>
+<tr><td><code>name</code></td><td>string</td><td>&mdash;</td><td>Name prefix for all resources</td></tr>
+<tr><td><code>vpc_id</code></td><td>string</td><td>&mdash;</td><td>VPC in which to create resources</td></tr>
+<tr><td><code>create_endpoint_service</code></td><td>bool</td><td>false</td><td>Create a producer-side Endpoint Service</td></tr>
+<tr><td><code>network_load_balancer_arns</code></td><td>list(string)</td><td>[]</td><td>NLB ARNs for the endpoint service</td></tr>
+<tr><td><code>gateway_load_balancer_arns</code></td><td>list(string)</td><td>[]</td><td>GWLB ARNs for the endpoint service</td></tr>
+<tr><td><code>acceptance_required</code></td><td>bool</td><td>true</td><td>Require manual connection acceptance</td></tr>
+<tr><td><code>allowed_principals</code></td><td>list(string)</td><td>[]</td><td>ARNs allowed to connect</td></tr>
+<tr><td><code>private_dns_name</code></td><td>string</td><td>null</td><td>Private DNS for endpoint service</td></tr>
+<tr><td><code>create_vpc_endpoints</code></td><td>bool</td><td>true</td><td>Create consumer-side endpoints</td></tr>
+<tr><td><code>endpoints</code></td><td>map(object)</td><td>{}</td><td>Map of endpoint configs (service_name, type, subnet_ids, etc.)</td></tr>
+<tr><td><code>tags</code></td><td>map(string)</td><td>{}</td><td>Tags for all resources</td></tr>
+</table>
+</div>
+
+<h3>Outputs</h3>
+<div class="table-wrap">
+<table>
+<tr><th>Output</th><th>Description</th></tr>
+<tr><td><code>endpoint_service_id</code></td><td>ID of the VPC Endpoint Service</td></tr>
+<tr><td><code>endpoint_service_name</code></td><td>Service name of the Endpoint Service</td></tr>
+<tr><td><code>endpoint_service_arn</code></td><td>ARN of the Endpoint Service</td></tr>
+<tr><td><code>endpoint_ids</code></td><td>Map of endpoint keys to VPC Endpoint IDs</td></tr>
+<tr><td><code>endpoint_dns_entries</code></td><td>Map of endpoint keys to DNS entries</td></tr>
+<tr><td><code>endpoint_arns</code></td><td>Map of endpoint keys to ARNs</td></tr>
+<tr><td><code>endpoint_network_interface_ids</code></td><td>Map of Interface endpoint NICs</td></tr>
+<tr><td><code>security_group_id</code></td><td>Default security group ID</td></tr>
+</table>
+</div>
+</section>
+
+<!-- Deployment -->
+<section class="section">
+<h2>Deployment</h2>
+<pre>
+# Consumer - create endpoints for AWS services
+module "vpc_endpoints" {
+  source = "kogunlowo123/privatelink/aws"
+
+  name   = "my-app"
+  vpc_id = "vpc-0123456789abcdef0"
+
+  endpoints = {
+    s3 = {
+      service_name = "com.amazonaws.us-east-1.s3"
+      type         = "Gateway"
+    }
+    ssm = {
+      service_name        = "com.amazonaws.us-east-1.ssm"
+      type                = "Interface"
+      subnet_ids          = ["subnet-aaa", "subnet-bbb"]
+      private_dns_enabled = true
+    }
+  }
+
+  tags = { Environment = "production" }
+}
+
+# Producer - expose a service via PrivateLink
+module "endpoint_service" {
+  source = "kogunlowo123/privatelink/aws"
+
+  name   = "my-service"
+  vpc_id = "vpc-producer123"
+
+  create_endpoint_service    = true
+  network_load_balancer_arns = [aws_lb.nlb.arn]
+  acceptance_required        = true
+  allowed_principals         = ["arn:aws:iam::111111111111:root"]
+  create_vpc_endpoints       = false
+
+  tags = { Environment = "production" }
+}
+</pre>
+<pre>
+terraform init
+terraform plan
+terraform apply
+</pre>
+</section>
+
+<!-- Links -->
+<section class="section">
+<h2>Links</h2>
+<ul style="list-style:none;line-height:2.2">
+<li><a href="https://docs.aws.amazon.com/vpc/latest/privatelink/">AWS PrivateLink Documentation</a></li>
+<li><a href="https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_endpoint_service">Terraform: aws_vpc_endpoint_service</a></li>
+<li><a href="https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_endpoint">Terraform: aws_vpc_endpoint</a></li>
+<li><a href="https://github.com/kogunlowo123">Module Author: kogunlowo123</a></li>
+</ul>
+</section>
+
+<footer>
+<p>terraform-aws-privatelink &middot; Architecture Document</p>
+<p>Generated for reference purposes. Review all configurations before production deployment.</p>
+</footer>
+
+</div>
+</body>
+</html>
