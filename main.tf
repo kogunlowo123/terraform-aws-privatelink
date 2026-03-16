@@ -10,12 +10,9 @@ resource "aws_vpc_endpoint_service" "this" {
   gateway_load_balancer_arns = length(var.gateway_load_balancer_arns) > 0 ? var.gateway_load_balancer_arns : null
   private_dns_name           = var.private_dns_name
 
-  tags = merge(
-    local.common_tags,
-    {
-      Name = "${var.name}-endpoint-service"
-    }
-  )
+  tags = merge(var.tags, {
+    Name = "${var.name}-endpoint-service"
+  })
 }
 
 ################################################################################
@@ -47,7 +44,9 @@ resource "aws_vpc_endpoint_connection_accepter" "this" {
 ################################################################################
 
 resource "aws_security_group" "endpoint" {
-  count = local.create_default_sg ? 1 : 0
+  count = var.create_vpc_endpoints && length([
+    for k, v in var.endpoints : k if v.type == "Interface" && length(v.security_group_ids) == 0
+  ]) > 0 ? 1 : 0
 
   name        = "${var.name}-vpc-endpoint-sg"
   description = "Security group for VPC endpoints managed by ${var.name}"
@@ -69,12 +68,9 @@ resource "aws_security_group" "endpoint" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = merge(
-    local.common_tags,
-    {
-      Name = "${var.name}-vpc-endpoint-sg"
-    }
-  )
+  tags = merge(var.tags, {
+    Name = "${var.name}-vpc-endpoint-sg"
+  })
 }
 
 ################################################################################
@@ -88,31 +84,27 @@ resource "aws_vpc_endpoint" "this" {
   service_name      = each.value.service_name
   vpc_endpoint_type = each.value.type
 
-  # Interface endpoint configuration
   subnet_ids = each.value.type == "Interface" ? each.value.subnet_ids : null
 
   security_group_ids = each.value.type == "Interface" ? (
     length(each.value.security_group_ids) > 0
     ? each.value.security_group_ids
-    : (local.create_default_sg ? [aws_security_group.endpoint[0].id] : [])
+    : (var.create_vpc_endpoints && length([
+        for k, v in var.endpoints : k if v.type == "Interface" && length(v.security_group_ids) == 0
+      ]) > 0 ? [aws_security_group.endpoint[0].id] : [])
   ) : null
 
   private_dns_enabled = each.value.type == "Interface" ? each.value.private_dns_enabled : null
 
-  # Gateway endpoint configuration uses route_table_ids via separate association
-
   policy = each.value.policy
 
-  tags = merge(
-    local.common_tags,
-    {
-      Name = "${var.name}-${each.key}"
-    }
-  )
+  tags = merge(var.tags, {
+    Name = "${var.name}-${each.key}"
+  })
 }
 
 ################################################################################
-# VPC Endpoint Policy (standalone resource for additional policy management)
+# VPC Endpoint Policy
 ################################################################################
 
 resource "aws_vpc_endpoint_policy" "this" {
