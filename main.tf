@@ -90,8 +90,8 @@ resource "aws_vpc_endpoint" "this" {
     length(each.value.security_group_ids) > 0
     ? each.value.security_group_ids
     : (var.create_vpc_endpoints && length([
-        for k, v in var.endpoints : k if v.type == "Interface" && length(v.security_group_ids) == 0
-      ]) > 0 ? [aws_security_group.endpoint[0].id] : [])
+      for k, v in var.endpoints : k if v.type == "Interface" && length(v.security_group_ids) == 0
+    ]) > 0 ? [aws_security_group.endpoint[0].id] : [])
   ) : null
 
   private_dns_enabled = each.value.type == "Interface" ? each.value.private_dns_enabled : null
